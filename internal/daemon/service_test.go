@@ -279,12 +279,9 @@ func TestExecuteFailurePath(t *testing.T) {
 	svc := newTestService(t)
 	ctx := context.Background()
 	s, _ := svc.CreateSession(CreateSessionOpts{Owner: "cli:test"})
-	// Failing command tool.
-	if runtime.GOOS == "windows" {
-		svc.Registry.Register(toolModel("failing", "cmd.exe"))
-	} else {
-		svc.Registry.Register(toolModel("failing", "/bin/false"))
-	}
+	// Failing command tool (portable: sh -c "exit 7" / cmd exit 7).
+	exe, fargs := failExe(t)
+	svc.Registry.Register(toolModel("failing", exe, fargs))
 	run, err := svc.Execute(ctx, ExecuteOptions{
 		Owner: "cli:test", SessionID: s.ID, ToolID: "failing",
 		Command: "run", Wait: true,
@@ -313,15 +310,16 @@ func TestExecuteFailurePath(t *testing.T) {
 }
 
 // toolModel builds a registry Tool for direct registration.
-func toolModel(id, exe string) *model.Tool {
-	args := []string{}
-	if runtime.GOOS == "windows" && exe == "cmd.exe" {
-		args = []string{"/c", "exit", "1"}
-	}
-	if runtime.GOOS != "windows" && exe == "/bin/false" {
-		args = nil
-	}
+func toolModel(id, exe string, args []string) *model.Tool {
 	return &model.Tool{ID: id, Type: "command", Executable: exe, Args: args}
+}
+
+// failExe returns a command that exits nonzero, portable across platforms.
+func failExe(t *testing.T) (string, []string) {
+	if runtime.GOOS == "windows" {
+		return filepath.Join(os.Getenv("SystemRoot"), "System32", "cmd.exe"), []string{"/c", "exit 7"}
+	}
+	return "/bin/sh", []string{"-c", "exit 7"}
 }
 
 func execCommand(name string, args ...string) *exec.Cmd { return exec.Command(name, args...) }
