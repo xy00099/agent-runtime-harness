@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/xy00099/agent-runtime-harness/schemas/tools.schema.json",
+  "title": "Agent Runtime Harness — tools section",
+  "type": "object",
+  "description": "The `tools:` map of the runtime config. Keys are tool ids.",
+  "patternProperties": {
+    "^[A-Za-z][A-Za-z0-9._-]*$": { "$ref": "#/$defs/tool" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "tool": {
+      "type": "object",
+      "required": ["type", "executable"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": ["command", "unity"],
+          "description": "Adapter type. `command` runs any host executable; `unity` is the Unity batchmode adapter."
+        },
+        "version": { "type": "string", "description": "Tool version, used by requirement resolution." },
+        "executable": { "type": "string", "description": "Absolute path or PATH-lookup name. For macOS .app bundles use the binary inside Contents/MacOS/." },
+        "version_command": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Args appended to the executable for `tool doctor` / `version` command."
+        },
+        "args": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Prefix args (command adapter)."
+        },
+        "env": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Per-tool environment overrides; win over the session env."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Advertised subcommands, e.g. run, test.editmode, build."
+        },
+        "disabled": { "type": "boolean", "default": false }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "my-tool": {
+        "type": "command",
+        "executable": "/usr/local/bin/my-tool",
+        "args": ["--verbose"]
+      },
+      "unity-6000": {
+        "type": "unity",
+        "version": "6000.3",
+        "executable": "/Applications/Unity/Hub/Editor/6000.3/Unity.app/Contents/MacOS/Unity"
+      }
+    }
+  ]
+}

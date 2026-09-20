@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/xy00099/agent-runtime-harness/schemas/runtime.schema.json",
+  "title": "Agent Runtime Harness — runtime config",
+  "type": "object",
+  "description": "Top-level runtime configuration (~/.agent-runtime/config.yaml).",
+  "properties": {
+    "runtime": {
+      "type": "object",
+      "properties": {
+        "state_dir": { "type": "string", "default": "~/.agent-runtime" },
+        "max_sessions": { "type": "integer", "minimum": 1, "default": 16 }
+      },
+      "additionalProperties": false
+    },
+    "daemon": {
+      "type": "object",
+      "properties": {
+        "endpoint": { "type": "string", "enum": ["unix", "tcp"], "default": "unix" },
+        "host": { "type": "string", "default": "127.0.0.1" },
+        "port": { "type": "integer", "minimum": 0, "maximum": 65535, "default": 0 }
+      },
+      "additionalProperties": false
+    },
+    "resources": {
+      "type": "object",
+      "description": "Schedulable resources by id.",
+      "patternProperties": {
+        "^[A-Za-z][A-Za-z0-9._-]*$": { "$ref": "#/$defs/resource" }
+      }
+    },
+    "environment": { "$ref": "#/$defs/environment" },
+    "policy": { "$ref": "#/$defs/policy" },
+    "unity": { "$ref": "#/$defs/unity" }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "resource": {
+      "type": "object",
+      "required": ["mode"],
+      "properties": {
+        "mode": { "type": "string", "enum": ["exclusive", "shared", "capacity"] },
+        "capacity": { "type": "integer", "minimum": 1 },
+        "provider": { "type": "string" },
+        "meta": { "type": "object", "additionalProperties": { "type": "string" } }
+      },
+      "additionalProperties": false
+    },
+    "environment": {
+      "type": "object",
+      "properties": {
+        "isolate_home": { "type": "boolean", "default": true },
+        "isolate_tmp": { "type": "boolean", "default": true },
+        "isolate_xdg": { "type": "boolean", "default": true },
+        "inherit": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Exact names or PREFIX_* globs."
+        },
+        "deny": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Never passed to children."
+        },
+        "set": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        },
+        "redact": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Values masked in structured logs."
+        }
+      },
+      "additionalProperties": false
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "max_processes_per_session": { "type": "integer", "minimum": 1, "default": 32 },
+        "max_runtime_minutes": { "type": "integer", "minimum": 1, "default": 120 },
+        "max_concurrent_runs": { "type": "integer", "minimum": 1, "default": 8 },
+        "rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["subject"],
+            "properties": {
+              "subject": { "type": "string", "description": "Caller prefix; * matches all." },
+              "allow": { "type": "array", "items": { "type": "string" } },
+              "deny": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "unity": {
+      "type": "object",
+      "properties": {
+        "editors": {
+          "type": "object",
+          "additionalProperties": { "type": "string" },
+          "description": "Friendly id -> editor root or .app path."
+        },
+        "default_version": { "type": "string", "description": "Constraint like \">= 6000.0\"." },
+        "cache": {
+          "type": "object",
+          "properties": {
+            "accelerator_enabled": { "type": "boolean", "default": false },
+            "accelerator_host": { "type": "string", "default": "127.0.0.1" },
+            "shared_package_cache": { "type": "string" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

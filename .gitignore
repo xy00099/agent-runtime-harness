@@ -1,0 +1,19 @@
+# binaries
+/arh
+/arh.exe
+dist/
+
+# local runtime state (never commit sessions, runs, leases)
+.agent-runtime/
+state/
+runs/
+
+# test artifacts
+*.test
+*.out
+coverage.txt
+
+# editor
+.idea/
+.vscode/
+*.swp

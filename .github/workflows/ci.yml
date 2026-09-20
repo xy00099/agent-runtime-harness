@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build
+        run: go build ./...
+      - name: Vet
+        run: |
+          go vet ./...
+          go vet -tags integration ./...
+      - name: Unit tests
+        run: go test -count=1 ./...
+      - name: Integration tests (real subprocesses)
+        run: go test -count=1 -tags integration -timeout 10m ./internal/...
+      - name: Race detector (unit)
+        if: runner.os != 'Windows'
+        run: go test -count=1 -race ./internal/lease/ ./internal/ports/ ./internal/policy/ ./internal/registry/
+
+  cross-compile:
+    name: cross-compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+      - name: Build all release targets
+        run: |
+          mkdir -p dist
+          targets="darwin/arm64 darwin/amd64 linux/amd64 linux/arm64 windows/amd64"
+          for t in $targets; do
+            GOOS=${t%/*} GOARCH=${t#*/} CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w" -o "dist/arh-${t//\//-}" ./cmd/arh
+          done
+          ls -la dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: arh-binaries
+          path: dist/
+
+  release:
+    name: release
+    needs: [test, cross-compile]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: arh-binaries
+          path: dist
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: dist/*
