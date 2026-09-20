@@ -5,8 +5,8 @@ dist/
 
 # local runtime state (never commit sessions, runs, leases)
 .agent-runtime/
-state/
-runs/
+/state/
+/runs/
 
 # test artifacts
 *.test
