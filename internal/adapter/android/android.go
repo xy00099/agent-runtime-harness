@@ -77,6 +77,18 @@ func sdkRoot(tool *model.Tool) string {
 	return ""
 }
 
+// batName names a Windows batch wrapper; on unix the same tool is a
+// shell script without an extension.
+func batName(name string) string {
+	if runtimeIsWindowsFS() {
+		return name + ".bat"
+	}
+	return name
+}
+
+// runtimeIsWindowsFS reports a Windows filesystem separator.
+func runtimeIsWindowsFS() bool { return filepath.Separator == 92 }
+
 // adbPath returns the adb executable path for the tool.
 func adbPath(tool *model.Tool) (string, error) {
 	if v, ok := tool.Env["ARH_ADB"]; ok && v != "" {
@@ -278,7 +290,7 @@ func (a *Adapter) buildAPK(ctx context.Context, req *adapter.Request, rt adapter
 		bt = latestBuildTools(root)
 	}
 	btdir := filepath.Join(root, "build-tools", bt)
-	for _, f := range []string{exeName("aapt2"), "d8.bat", exeName("zipalign"), "apksigner.bat"} {
+	for _, f := range []string{exeName("aapt2"), batName("d8"), exeName("zipalign"), batName("apksigner")} {
 		if _, err := os.Stat(filepath.Join(btdir, f)); err != nil {
 			return nil, fmt.Errorf("android adapter: build-tools %s missing %s", bt, f)
 		}
@@ -373,7 +385,7 @@ func (a *Adapter) buildAPK(ctx context.Context, req *adapter.Request, rt adapter
 	if len(classFiles) > 0 {
 		rt.Log("", "info", fmt.Sprintf("d8 (%d classes)", len(classFiles)))
 		d8Args := append([]string{"--lib", platformJar, "--min-api", "24", "--output", outDir}, classFiles...)
-		if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, "d8.bat"), d8Args, env, src); err != nil {
+		if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, batName("d8")), d8Args, env, src); err != nil {
 			return nil, err
 		}
 	} else {
@@ -408,7 +420,7 @@ func (a *Adapter) buildAPK(ctx context.Context, req *adapter.Request, rt adapter
 	if err := copyFile(aligned, signed); err != nil {
 		return nil, err
 	}
-	if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, "apksigner.bat"),
+	if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, batName("apksigner")),
 		[]string{"sign", "--ks", ks, "--ks-pass", "pass:android", "--ks-key-alias", "androiddebugkey",
 			"--key-pass", "pass:android", "--out", signed, signed}, env, src); err != nil {
 		return nil, err
@@ -420,7 +432,7 @@ func (a *Adapter) buildAPK(ctx context.Context, req *adapter.Request, rt adapter
 		if err := copyFile(aligned, signed); err != nil {
 			return nil, err
 		}
-		if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, "apksigner.bat"),
+		if _, err := a.exec(ctx, req, rt, runDir, filepath.Join(btdir, batName("apksigner")),
 			[]string{"sign", "--ks", ks, "--ks-pass", "pass:android", "--ks-key-alias", "androiddebugkey",
 				"--key-pass", "pass:android", signed}, env, src); err != nil {
 			return nil, err
@@ -886,7 +898,7 @@ func makeDebugKeystore(path string, env []string, javaHome string) error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	keytool := filepath.Join(javaHome, "bin", exeName("keytool"))
+	keytool := filepath.Join(javaHome, "bin", exeName("keytool")) // keytool is exe on windows, script elsewhere
 	dname := "CN=Android Debug,O=Android,C=US"
 	cmd := exec.Command(keytool, "-genkeypair",
 		"-keystore", path,

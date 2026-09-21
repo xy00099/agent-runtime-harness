@@ -14,6 +14,12 @@ import (
 	"github.com/xy00099/agent-runtime-harness/internal/config"
 )
 
+// androidSDKRaw returns the SDK path without skipping (helper).
+func androidSDKRaw(t *testing.T) string {
+	t.Helper()
+	return androidSDK(t)
+}
+
 // androidSDK locates a real Android SDK on this machine.
 func androidSDK(t *testing.T) string {
 	t.Helper()
@@ -88,6 +94,57 @@ func javaHome(t *testing.T) string {
 func fileExistsDir(p string) bool {
 	st, err := os.Stat(p)
 	return err == nil && st.IsDir()
+}
+
+// requireBuildTools skips the test when the SDK cannot actually build
+// (missing build-tools or android.jar on CI runners).
+func requireBuildTools(t *testing.T, sdk string) {
+	t.Helper()
+	bt := latestBuildToolsDirForTest(sdk)
+	if bt == "" {
+		t.Skipf("no usable build-tools in %s", sdk)
+	}
+	if _, err := os.Stat(filepath.Join(sdk, "platforms")); err != nil {
+		t.Skip("no platforms/ installed; cannot build")
+	}
+}
+
+// latestBuildToolsDirForTest mirrors adapter logic without importing it.
+func latestBuildToolsDirForTest(sdk string) string {
+	entries, err := os.ReadDir(filepath.Join(sdk, "build-tools"))
+	if err != nil {
+		return ""
+	}
+	best := ""
+	for _, e := range entries {
+		if !e.IsDir() {
+			continue
+		}
+		dir := filepath.Join(sdk, "build-tools", e.Name())
+		need := []string{"aapt2", "d8", "zipalign", "apksigner"}
+		if runtime.GOOS == "windows" {
+			need = []string{"aapt2.exe", "d8.bat", "zipalign.exe", "apksigner.bat"}
+		}
+		ok := true
+		for _, n := range need {
+			if _, err := os.Stat(filepath.Join(dir, n)); err != nil {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			best = dir
+		}
+	}
+	return best
+}
+
+// requireSystemImage skips when no system image is installed (avd tests).
+func requireSystemImage(t *testing.T, sdk string) {
+	t.Helper()
+	if _, err := os.Stat(filepath.Join(sdk, "system-images")); err != nil {
+		t.Skip("no system-images/ installed; cannot create AVDs")
+	}
 }
 
 // androidService builds a service with a real android tool registered.
@@ -198,6 +255,7 @@ func TestAndroidDeviceLeaseIsExclusive(t *testing.T) {
 // TestAndroidBuildAPK builds and signs a real debug APK with build-tools.
 func TestAndroidBuildAPK(t *testing.T) {
 	svc := androidService(t)
+	requireBuildTools(t, androidSDKRaw(t))
 	ctx := context.Background()
 	s, _ := svc.CreateSession(CreateSessionOpts{Owner: "cli:test"})
 	src := minimalAPKSource(t)
@@ -231,6 +289,7 @@ func TestAndroidBuildAPK(t *testing.T) {
 // ANDROID_AVD_HOME, not the host's ~/.android/avd.
 func TestAndroidAVDSessionIsolation(t *testing.T) {
 	svc := androidService(t)
+	requireSystemImage(t, androidSDKRaw(t))
 	ctx := context.Background()
 	s, _ := svc.CreateSession(CreateSessionOpts{Owner: "cli:test"})
 	run, err := svc.Execute(ctx, ExecuteOptions{
