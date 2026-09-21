@@ -65,6 +65,10 @@ func (a *Adapter) Launch(ctx context.Context, req *adapter.Request, rt adapter.R
 	}
 
 	rt.Log("", "info", fmt.Sprintf("command: %s %v", exe, args))
+	timeout := 10 * time.Minute
+	if req.Timeout > 0 {
+		timeout = req.Timeout // caller override (CLI --timeout-min, MCP)
+	}
 	res, err := rt.Exec(ctx, adapter.ExecRequest{
 		SessionID: req.Session.ID,
 		Label:     fmt.Sprintf("command:%s", req.Tool.ID),
@@ -73,7 +77,7 @@ func (a *Adapter) Launch(ctx context.Context, req *adapter.Request, rt adapter.R
 		Env:       env,
 		Dir:       rt.WorkspaceDir(req.Session.ID),
 		RunDir:    runDir,
-		Timeout:   10 * time.Minute,
+		Timeout:   timeout,
 	})
 	if err != nil {
 		return nil, err

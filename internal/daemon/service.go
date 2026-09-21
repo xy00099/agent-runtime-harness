@@ -583,9 +583,6 @@ func (s *Service) Execute(ctx context.Context, o ExecuteOptions) (*model.Run, er
 		return nil, err
 	}
 	run.Env = s.EnvMgr.Redact(envPairs(sessionEnv))
-	if o.TimeoutMinutes > 0 {
-		run.Attempt = o.TimeoutMinutes // reuse field? no: keep in closure
-	}
 	_ = s.Runs.Update(run.ID, func(r *model.Run) { r.Env = run.Env })
 
 	req := &adapter.Request{
@@ -594,6 +591,9 @@ func (s *Service) Execute(ctx context.Context, o ExecuteOptions) (*model.Run, er
 		Command:    o.Command,
 		Args:       o.Args,
 		SessionEnv: sessionEnv,
+	}
+	if o.TimeoutMinutes > 0 {
+		req.Timeout = time.Duration(o.TimeoutMinutes) * time.Minute
 	}
 	if _, err := ad.Prepare(ctx, req); err != nil {
 		_ = s.Runs.Finish(run.ID, model.RunError, nil, err.Error())

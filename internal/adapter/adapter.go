@@ -75,6 +75,8 @@ type Request struct {
 	Args map[string]any
 	// SessionEnv is the session's isolated environment (base for children).
 	SessionEnv []string
+	// Timeout, when > 0, overrides the adapter's default per-run timeout.
+	Timeout time.Duration
 }
 
 // Result is what an adapter produces for one execution.

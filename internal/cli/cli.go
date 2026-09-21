@@ -681,7 +681,7 @@ func parseToolCommand(s string) (toolID, requirement, command string, err error)
 // repeatedFlag collects a repeatable string flag.
 type repeatedFlag []string
 
-func (r *repeatedFlag) String() string { return strings.Join(*r, ",") }
+func (r *repeatedFlag) String() string     { return strings.Join(*r, ",") }
 func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
 
 // mergeArgs folds repeated --arg k=v entries into the positional map.

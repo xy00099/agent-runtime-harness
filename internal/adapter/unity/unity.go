@@ -205,6 +205,9 @@ func (a *Adapter) launchVersion(ctx context.Context, req *adapter.Request, rt ad
 }
 
 func (a *Adapter) timeoutMinutes(req *adapter.Request) int {
+	if req.Timeout > 0 {
+		return int(req.Timeout / time.Minute)
+	}
 	if v, ok := req.Args["timeout_minutes"]; ok {
 		switch n := v.(type) {
 		case float64:

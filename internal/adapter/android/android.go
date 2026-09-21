@@ -196,6 +196,10 @@ func (a *Adapter) runAdb(ctx context.Context, req *adapter.Request, rt adapter.R
 
 // exec is the supervised launch used by every path.
 func (a *Adapter) exec(ctx context.Context, req *adapter.Request, rt adapter.Runtime, runDir, exe string, args, env []string, dir string) (*adapter.Result, error) {
+	timeout := a.timeoutFor(req.Command)
+	if req.Timeout > 0 {
+		timeout = req.Timeout // caller override (CLI --timeout-min, MCP)
+	}
 	res, err := rt.Exec(ctx, adapter.ExecRequest{
 		SessionID: req.Session.ID,
 		Label:     fmt.Sprintf("android:%s", req.Command),
@@ -204,7 +208,7 @@ func (a *Adapter) exec(ctx context.Context, req *adapter.Request, rt adapter.Run
 		Env:       env,
 		Dir:       dir,
 		RunDir:    runDir,
-		Timeout:   a.timeoutFor(req.Command),
+		Timeout:   timeout,
 	})
 	if err != nil {
 		return nil, err

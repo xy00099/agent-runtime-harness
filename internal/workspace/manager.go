@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,11 @@ type State struct {
 func (m *Manager) Snapshot() *State {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	return m.snapshotLocked()
+}
+
+// snapshotLocked builds the state; caller holds mu.
+func (m *Manager) snapshotLocked() *State {
 	s := &State{Workspaces: []*model.Workspace{}}
 	for _, w := range m.ws {
 		s.Workspaces = append(s.Workspaces, w)
@@ -79,20 +85,63 @@ type CreateOptions struct {
 	Path string
 }
 
+// normalizePath makes sense of the paths users actually type on Windows.
+// Git-bash/MSYS expands ~ to a POSIX-style path (/c/Users/...); a naive
+// filepath.Abs treats that as RELATIVE and produces C:\c\Users\...
+// Detected forms: /c/..., /cygdrive/c/..., plus plain ~/... and ~.
+func normalizePath(p string) string {
+	if p == "~" || strings.HasPrefix(p, "~/") {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, strings.TrimPrefix(p, "~"))
+		}
+	}
+	if runtime.GOOS == "windows" {
+		if strings.HasPrefix(p, "/cygdrive/") && len(p) > len("/cygdrive/x") {
+			rest := strings.TrimPrefix(p, "/cygdrive/")
+			return string(rest[0]) + ":" + rest[1:]
+		}
+		if len(p) > 2 && p[0] == '/' && isDriveLetter(p[1]) && p[2] == '/' {
+			// /c/Users/... -> C:\Users\...
+			return string(p[1]) + ":" + p[2:]
+		}
+	}
+	return p
+}
+
+func isDriveLetter(c byte) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+}
+
 // Create makes a git worktree for the repo.
 func (m *Manager) Create(opts CreateOptions) (*model.Workspace, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	w, err := m.createLocked(opts)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	snap := m.snapshotLocked()
+	m.mu.Unlock()
+	if err := m.st.Save("workspaces", snap); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+func (m *Manager) createLocked(opts CreateOptions) (*model.Workspace, error) {
 	if opts.Repo == "" {
 		return nil, fmt.Errorf("repo is required")
 	}
-	repo, err := filepath.Abs(opts.Repo)
+	repo, err := filepath.Abs(normalizePath(opts.Repo))
 	if err != nil {
 		return nil, fmt.Errorf("resolve repo path: %w", err)
 	}
 	if err := gitAt(repo, "rev-parse", "--git-dir"); err != nil {
 		return nil, fmt.Errorf("%s is not a git repository: %w", repo, err)
 	}
+	// Self-heal worktrees whose target directories vanished (previous failed
+	// runs, manual deletes): prune stale registrations before adding ours.
+	_ = gitAt(repo, "worktree", "prune")
 	name := opts.Name
 	if name == "" && opts.Branch != "" {
 		name = filepath.Base(strings.TrimSuffix(opts.Branch, "/")) // e.g. agent/foo -> foo
@@ -110,12 +159,21 @@ func (m *Manager) Create(opts CreateOptions) (*model.Workspace, error) {
 	if opts.Path != "" {
 		wtRoot = opts.Path
 	}
+	// The target directory may already exist (a previous failed create left
+	// it, or two managers raced). Pick a fresh suffix instead of failing.
 	target := filepath.Join(wtRoot, fmt.Sprintf("%s-%s", sanitize(name), id))
+	for i := 0; ; i++ {
+		if _, err := os.Stat(target); os.IsNotExist(err) {
+			break
+		}
+		target = filepath.Join(wtRoot, fmt.Sprintf("%s-%s-%d", sanitize(name), id, i+1))
+	}
 	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
 		return nil, fmt.Errorf("create worktree parent: %w", err)
 	}
 
 	// Branch strategy: create a ref so two worktrees never share a branch.
+	// An existing branch is not an error: check it out into the worktree.
 	args := []string{"worktree", "add"}
 	switch {
 	case opts.Detach:
@@ -124,7 +182,11 @@ func (m *Manager) Create(opts CreateOptions) (*model.Workspace, error) {
 			args = append(args, opts.Branch)
 		}
 	default:
-		args = append(args, "-b", opts.Branch, target)
+		if branchExists(repo, opts.Branch) {
+			args = append(args, target, opts.Branch) // checkout existing branch
+		} else {
+			args = append(args, "-b", opts.Branch, target)
+		}
 	}
 	if err := gitAt(repo, args...); err != nil {
 		return nil, fmt.Errorf("git worktree add: %w\n(output: run manually: git -C %s %v)", err, repo, strings.Join(args, " "))
@@ -138,9 +200,6 @@ func (m *Manager) Create(opts CreateOptions) (*model.Workspace, error) {
 		CreatedAt: time.Now(),
 	}
 	m.ws[name] = w
-	if err := m.Persist(); err != nil {
-		return nil, err
-	}
 	return w, nil
 }
 
@@ -153,7 +212,20 @@ func normalizeRoot(p string) string {
 // for non-git projects and tests.
 func (m *Manager) CreatePlain(dir, name string) (*model.Workspace, error) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	w, err := m.createPlainLocked(dir, name)
+	if err != nil {
+		m.mu.Unlock()
+		return nil, err
+	}
+	snap := m.snapshotLocked()
+	m.mu.Unlock()
+	if err := m.st.Save("workspaces", snap); err != nil {
+		return nil, err
+	}
+	return w, nil
+}
+
+func (m *Manager) createPlainLocked(dir, name string) (*model.Workspace, error) {
 	if dir == "" {
 		return nil, fmt.Errorf("dir is required")
 	}
@@ -180,7 +252,9 @@ func (m *Manager) CreatePlain(dir, name string) (*model.Workspace, error) {
 		Plain:     true,
 	}
 	m.ws[name] = w
-	if err := m.Persist(); err != nil {
+	snap := m.snapshotLocked()
+	m.mu.Unlock()
+	if err := m.st.Save("workspaces", snap); err != nil {
 		return nil, err
 	}
 	return w, nil
@@ -226,11 +300,12 @@ func (m *Manager) List() []*model.Workspace {
 // MarkSession records the last session that used a workspace.
 func (m *Manager) MarkSession(id, sessionID string) {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	if w, ok := m.ws[id]; ok {
 		w.LastSessionID = sessionID
-		_ = m.st.Save("workspaces", m.Snapshot())
 	}
+	snap := m.snapshotLocked()
+	m.mu.Unlock()
+	_ = m.st.Save("workspaces", snap)
 }
 
 // Remove deletes a workspace registration and prunes its worktree.
@@ -253,6 +328,14 @@ func (m *Manager) Remove(name string, prune bool) (*model.Workspace, error) {
 		return w, err
 	}
 	return w, nil
+}
+
+// branchExists reports whether a local branch exists in the repo.
+func branchExists(repo, branch string) bool {
+	if branch == "" {
+		return false
+	}
+	return gitAt(repo, "show-ref", "--verify", "--quiet", "refs/heads/"+branch) == nil
 }
 
 func gitAt(dir string, args ...string) error {
