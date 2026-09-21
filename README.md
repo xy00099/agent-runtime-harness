@@ -49,6 +49,7 @@ It is the runtime that mediates access to the machine.
 | **Port allocation** | Exclusive TCP/UDP ports held by a live listener so nobody else can take them; released with the session. |
 | **Tool registry** | Host tools as managed resources: config + auto-detection (Unity Hub), executable validation (`doctor`), version constraint resolution (`unity >= 6000.0`). |
 | **Unity adapter** | Batchmode `-runTests` / `-executeMethod` / `-buildTarget` runs, editor log capture, NUnit3 test report parsing. |
+| **Android adapter** | SDK/device discovery, signed APK builds (aapt2+d8+apksigner, no Gradle), session-isolated AVDs, supervised emulator boots, exclusive `adb:<serial>` device leases, screenshots. |
 | **Generic command adapter** | Any host executable under the same supervision, leases and logging. |
 | **Artifacts & logs** | Every run produces `runs/<id>/{metadata.json,stdout.log,stderr.log,log.txt,artifacts/}`. |
 | **Crash recovery** | Daemon restart reloads persisted state, reconciles orphaned processes (start-time identity), releases leases/ports of dead sessions. |
@@ -182,6 +183,8 @@ runtime_list_resources      runtime_acquire_resource   runtime_release_resource
 runtime_list_leases         runtime_allocate_port      runtime_get_logs
 runtime_get_artifacts       runtime_list_runs
 unity_run_tests             unity_build
+android_list_devices        android_build_apk          android_run_tests
+android_screenshot
 ```
 
 Example agent flow:
@@ -233,6 +236,28 @@ Principles (from `ROADMAP.md`):
 5. Agent crashes must not leak runtime state indefinitely.
 6. Everything important is observable from the CLI.
 
+## Android (v0.2)
+
+The second toolchain validates the abstraction — same daemon, same lease
+manager, same supervisor, only a new adapter:
+
+```bash
+# register the SDK (binaries derive from ANDROID_HOME; no executable needed)
+# tools: { android-sdk: { type: android, env: { ANDROID_HOME: ..., JAVA_HOME: ... } } }
+
+arh exec android-sdk.targets --session sess-1
+arh exec android-sdk.build.apk --session sess-1 -- src=myproject package=com.example.app
+arh lease acquire --session sess-1 --resource adb:emulator-5574   # exclusive device lease
+arh exec android-sdk.install --session sess-1 -- serial=emulator-5574 apk=app.apk
+arh exec android-sdk.screenshot --session sess-1 -- serial=emulator-5574
+```
+
+Device commands lease `adb:<serial>` **exclusively**: two sessions can never
+touch the same device concurrently; a session death hands the serial to the
+next waiter automatically. AVDs are created under the session's isolated
+`ANDROID_AVD_HOME` (never `~/.android`), and emulator boots are supervised
+services that die with the session. See `docs/android.md`.
+
 ## The multi-agent demo
 
 ```bash
@@ -277,7 +302,7 @@ internal/ports/     port allocation
 internal/registry/  tool registry + version resolution
 internal/env/       environment isolation
 internal/workspace/ git worktrees
-internal/adapter/   adapter contract + command + unity adapters
+internal/adapter/   adapter contract + command + unity + android adapters
 internal/runs/      run records + artifacts
 internal/policy/    capability policy
 internal/daemon/    the service facade + recovery
@@ -299,9 +324,11 @@ go test ./...                              # unit tests
 go test -tags integration ./internal/...   # real subprocesses, kills, recovery
 ```
 
-Roadmap: `ROADMAP.md` (phases 0–15, v0.1 → v1.0). Status: **v0.1 complete** —
-daemon, sessions, supervision, leases, ports, registry, adapters (command +
-Unity), artifacts, recovery, policy, CLI, MCP, multi-agent demo.
+Roadmap: `ROADMAP.md` (phases 0–15, v0.1 → v1.0). Status: **v0.2 complete** —
+v0.1 (daemon, sessions, supervision, leases, ports, registry, command +
+Unity adapters, artifacts, recovery, policy, CLI, MCP, multi-agent demo)
+plus the Android adapter (device leases, SDK discovery, parallel test jobs,
+artifact capture).
 
 ## License
 

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/xy00099/agent-runtime-harness/internal/adapter"
+	"github.com/xy00099/agent-runtime-harness/internal/adapter/android"
 	"github.com/xy00099/agent-runtime-harness/internal/adapter/command"
 	"github.com/xy00099/agent-runtime-harness/internal/adapter/unity"
 	"github.com/xy00099/agent-runtime-harness/internal/config"
@@ -23,6 +24,7 @@ import (
 	"github.com/xy00099/agent-runtime-harness/internal/model"
 	"github.com/xy00099/agent-runtime-harness/internal/policy"
 	"github.com/xy00099/agent-runtime-harness/internal/ports"
+	"github.com/xy00099/agent-runtime-harness/internal/proc"
 	"github.com/xy00099/agent-runtime-harness/internal/registry"
 	"github.com/xy00099/agent-runtime-harness/internal/runs"
 	"github.com/xy00099/agent-runtime-harness/internal/session"
@@ -105,6 +107,7 @@ func (s *Service) registerAdapters() {
 	s.adapters = map[string]adapter.ToolAdapter{
 		"command": command.New(),
 		"unity":   unity.New(cfgUnity(s.Cfg)),
+		"android": android.New(),
 	}
 	s.mu.Unlock()
 }
@@ -425,12 +428,17 @@ type ResourceView struct {
 }
 
 // AcquireLease acquires a lease for a session, subject to policy.
+// adb:<serial> resources are dynamic: they are registered on demand as
+// exclusive resources (device leases, roadmap v0.2).
 func (s *Service) AcquireLease(ctx context.Context, owner, sessionID, resourceID string, ttl time.Duration) (*model.Lease, error) {
 	if err := s.Policy.Evaluate(owner, policy.CapLeaseAcquire); err != nil {
 		return nil, err
 	}
 	if _, err := s.GetSession(sessionID); err != nil {
 		return nil, err
+	}
+	if strings.HasPrefix(resourceID, "adb:") {
+		s.Leases.EnsureResource(resourceID, model.ModeExclusive)
 	}
 	return s.Leases.Acquire(ctx, resourceID, sessionID, ttl)
 }
@@ -753,6 +761,41 @@ func (r *serviceRuntime) Exec(ctx context.Context, req adapter.ExecRequest) (*ad
 // WorkspaceDir implements adapter.Runtime.
 func (r *serviceRuntime) WorkspaceDir(sessionID string) string {
 	return r.sess.WorkspaceDir
+}
+
+// LaunchDetached implements adapter.Runtime: supervised service launch
+// without waiting. The process stays under the supervisor until the
+// session dies or crash recovery reaps it.
+func (r *serviceRuntime) LaunchDetached(ctx context.Context, req adapter.ExecRequest) (adapter.DetachedHandle, error) {
+	s := r.svc
+	info, err := s.Supervisor.Launch(supervisor.LaunchOptions{
+		SessionID:  req.SessionID,
+		RunID:      r.run.ID,
+		Label:      req.Label,
+		Exe:        req.Exe,
+		Args:       req.Args,
+		Env:        req.Env,
+		Dir:        req.Dir,
+		StdoutPath: filepath.Join(req.RunDir, "stdout.log"),
+		StderrPath: filepath.Join(req.RunDir, "stderr.log"),
+	})
+	if err != nil {
+		return nil, err
+	}
+	_ = s.Runs.Update(r.run.ID, func(rr *model.Run) { rr.PID = info.PID })
+	return &detachedHandle{svc: s, info: info}, nil
+}
+
+// detachedHandle adapts a ProcInfo into adapter.DetachedHandle.
+type detachedHandle struct {
+	svc  *Service
+	info *model.ProcInfo
+}
+
+func (h *detachedHandle) PID() int { return h.info.PID }
+
+func (h *detachedHandle) Alive() bool {
+	return proc.AliveWithIdentity(h.info.PID, h.info.StartTime)
 }
 
 // Log implements adapter.Runtime.

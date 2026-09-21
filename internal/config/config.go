@@ -221,6 +221,9 @@ func (c *Config) Normalize() {
 	if _, ok := c.Resources["unity-process-slot"]; !ok {
 		c.Resources["unity-process-slot"] = ResourceConfig{Mode: "capacity", Capacity: 2}
 	}
+	if _, ok := c.Resources["android-emulator-slot"]; !ok {
+		c.Resources["android-emulator-slot"] = ResourceConfig{Mode: "capacity", Capacity: 2}
+	}
 }
 
 // Validate checks the configuration for obvious errors.
@@ -240,7 +243,9 @@ func (c *Config) Validate() error {
 		if t.Type == "" {
 			return fmt.Errorf("tool %q: type is required", id)
 		}
-		if t.Executable == "" && t.Type != "unity" {
+		// android tools derive binaries from ANDROID_HOME env; unity
+		// tools can auto-detect from the Hub.
+		if t.Executable == "" && t.Type != "unity" && t.Type != "android" {
 			return fmt.Errorf("tool %q: executable is required", id)
 		}
 	}

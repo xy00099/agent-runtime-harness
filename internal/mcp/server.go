@@ -268,6 +268,63 @@ func tools() map[string]toolDef {
 			}
 		},
 	}
+	t["android_list_devices"] = toolDef{
+		desc:   "List adb devices (physical + emulators) visible to the runtime.",
+		schema: reqProps(map[string]any{}, ""),
+		call: func(a map[string]any) (string, any) {
+			return "run.execute", rpc.ExecuteParams{Owner: "mcp", ToolID: "android-sdk", Command: "devices", Wait: true}
+		},
+	}
+	t["android_build_apk"] = toolDef{
+		desc: "Build a debug APK from a source directory (aapt2 + d8 + zipalign + apksigner).",
+		schema: reqProps(map[string]any{
+			"session": strProp("session id"),
+			"src":     strProp("source dir containing AndroidManifest.xml"),
+			"package": strProp("application package id"),
+		}, "session", "src"),
+		call: func(a map[string]any) (string, any) {
+			return "run.execute", rpc.ExecuteParams{
+				Owner: "mcp", SessionID: strArg(a, "session"), ToolID: "android-sdk",
+				Command: "build.apk",
+				Args:    map[string]any{"src": strArg(a, "src"), "package": strArg(a, "package")},
+				Wait:    true,
+			}
+		},
+	}
+	t["android_run_tests"] = toolDef{
+		desc: "Run instrumented tests on a leased device/emulator serial.",
+		schema: reqProps(map[string]any{
+			"session": strProp("session id"),
+			"serial":  strProp("adb serial, e.g. emulator-5554 (leased exclusively)"),
+			"cmd":     strProp("shell command, e.g. am instrument -w ..."),
+		}, "session", "serial", "cmd"),
+		call: func(a map[string]any) (string, any) {
+			return "run.execute", rpc.ExecuteParams{
+				Owner: "mcp", SessionID: strArg(a, "session"), ToolID: "android-sdk",
+				Command: "shell",
+				Args: map[string]any{
+					"serial": strArg(a, "serial"),
+					"cmd":    strArg(a, "cmd"),
+				},
+				Wait: true,
+			}
+		},
+	}
+	t["android_screenshot"] = toolDef{
+		desc: "Capture a screenshot from a leased device as a run artifact.",
+		schema: reqProps(map[string]any{
+			"session": strProp("session id"),
+			"serial":  strProp("adb serial (leased exclusively)"),
+		}, "session", "serial"),
+		call: func(a map[string]any) (string, any) {
+			return "run.execute", rpc.ExecuteParams{
+				Owner: "mcp", SessionID: strArg(a, "session"), ToolID: "android-sdk",
+				Command: "screenshot",
+				Args:    map[string]any{"serial": strArg(a, "serial")},
+				Wait:    true,
+			}
+		},
+	}
 	t["runtime_get_logs"] = toolDef{
 		desc: "Read a run's logs (log.txt, stdout.log, stderr.log, unity.log).",
 		schema: reqProps(map[string]any{

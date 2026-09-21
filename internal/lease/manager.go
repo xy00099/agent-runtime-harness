@@ -184,6 +184,22 @@ func (m *Manager) nextLeaseID() string {
 	return fmt.Sprintf("lease-%08x", m.seq)
 }
 
+// EnsureResource registers a resource on demand (dynamic discovery, e.g.
+// adb device serials). Existing definitions are never overwritten.
+func (m *Manager) EnsureResource(id string, mode model.LeaseMode) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.res[id]; ok {
+		return
+	}
+	cap := 0
+	if mode == model.ModeCapacity {
+		cap = 1
+	}
+	m.res[id] = &model.Resource{ID: id, Mode: mode, Capacity: cap}
+	_ = m.st.Save("leases", m.snapshotLocked())
+}
+
 // Resource returns the resource descriptor.
 func (m *Manager) Resource(id string) (*model.Resource, bool) {
 	m.mu.Lock()

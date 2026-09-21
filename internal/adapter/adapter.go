@@ -35,6 +35,15 @@ type ExecResult struct {
 	Note     string
 }
 
+// DetachedHandle tracks a supervised service process launched without
+// waiting for exit (emulators, dev servers).
+type DetachedHandle interface {
+	// PID is the supervised process id.
+	PID() int
+	// Alive reports whether the process is still running.
+	Alive() bool
+}
+
 // Runtime is the bundle of daemon capabilities an adapter may use.
 type Runtime interface {
 	// AcquireLease blocks until resourceID is leased to the session.
@@ -45,6 +54,10 @@ type Runtime interface {
 	AllocatePort(sessionID, protocol, name string) (int, error)
 	// Exec launches one supervised child process and waits for it.
 	Exec(ctx context.Context, req ExecRequest) (*ExecResult, error)
+	// LaunchDetached starts a supervised service process WITHOUT waiting:
+	// its lifecycle belongs to the session (killed at session end, reaped
+	// by crash recovery). Timeout 0 = never timed out by the run layer.
+	LaunchDetached(ctx context.Context, req ExecRequest) (DetachedHandle, error)
 	// WorkspaceDir returns the session workspace path ("" if none).
 	WorkspaceDir(sessionID string) string
 	// Log writes a structured line into the run log (run dir log.txt).
