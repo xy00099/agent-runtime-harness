@@ -107,6 +107,35 @@ go build -o arh ./cmd/arh        # or: go install github.com/xy00099/agent-runti
 Workspace lifetime is separate from session lifetime: **workspaces survive,
 sessions are disposable.**
 
+## Use with AI agents (zero pasting)
+
+The repo ships `AGENTS.md` — the agent-rules convention Claude Code, Codex
+and friends pick up **automatically** from the repo root. Anyone who clones
+this repo and opens it with an AI agent gets the correct workflow (sessions
+→ tool runs → artifacts → close) with nothing to copy anywhere.
+
+For the runtime to be reachable over MCP, add ONE server entry to your
+client config (`claude_desktop_config.json` / Cursor mcp.json / …):
+
+```json
+{ "mcpServers": { "agent-runtime": { "command": "arh", "args": ["mcp"] } } }
+```
+
+Then the agent can do, end to end:
+
+```text
+runtime_create_session(name="payment-fix")
+unity_run_tests(session="sess-1", mode="editmode")
+android_build_apk(session="sess-1", src="app", package="com.x.y")
+runtime_get_logs(run="run-000007")
+runtime_get_artifacts(run="run-000007")
+runtime_close_session(session="sess-1")
+```
+
+The MCP surface is thin and policy-checked — no raw host shell is exposed.
+Agent behavior rules (when to lease, when to close, never kill processes)
+live in [`AGENTS.md`](AGENTS.md); the MCP tool list is in [`docs/mcp.md`](docs/mcp.md).
+
 ## Configuration
 
 `~/.agent-runtime/config.yaml` (or `ARH_CONFIG=…`):
@@ -158,23 +187,11 @@ unity:
     shared_package_cache: ~/.agent-runtime/caches/upm
 ```
 
-## MCP
+## MCP tool surface
 
-Expose the runtime to coding agents (Claude Code, Codex, Gemini CLI, …):
-
-```jsonc
-// claude_desktop_config.json or any MCP client
-{
-  "mcpServers": {
-    "agent-runtime": {
-      "command": "/usr/local/bin/arh",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-Exposed tools (thin, policy-checked — never raw shell):
+`arh mcp` serves the same daemon over stdio (see *Use with AI agents*
+above for the one-line client config). Thin, policy-checked — never raw
+shell:
 
 ```text
 runtime_create_session      runtime_close_session      runtime_list_sessions
@@ -187,15 +204,8 @@ android_list_devices        android_build_apk          android_run_tests
 android_screenshot
 ```
 
-Example agent flow:
-
-```text
-create_session(workspace="payment-fix")
-unity_run_tests(session="sess-42", mode="editmode")
-runtime_get_logs(run="run-000007")
-runtime_get_artifacts(run="run-000007")
-close_session(session="sess-42")
-```
+Full tool schemas: [`docs/mcp.md`](docs/mcp.md). Agent behavior rules:
+[`AGENTS.md`](AGENTS.md).
 
 ## Architecture
 
@@ -290,6 +300,7 @@ stronger isolation backends later. See `docs/security.md`.
 ## Repository layout
 
 ```text
+AGENTS.md           agent rules — auto-loaded by coding agents, zero pasting
 cmd/arh/            daemon + CLI + MCP entrypoint
 internal/model/     core data model
 internal/config/    YAML config + defaults
