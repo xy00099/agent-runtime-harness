@@ -136,8 +136,9 @@ func Run(ctx context.Context, args []string) int {
 	}
 }
 
-// Version is the harness version.
-const Version = "0.1.0"
+// Version is the harness version (overridable at build time with
+// -ldflags "-X internal/cli.Version=0.2.0").
+var Version = "0.2.0"
 
 func buildInfo() string { return "go" }
 
