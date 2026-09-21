@@ -678,11 +678,65 @@ func parseToolCommand(s string) (toolID, requirement, command string, err error)
 	return s[:i], "", s[i+1:], nil
 }
 
+// repeatedFlag collects a repeatable string flag.
+type repeatedFlag []string
+
+func (r *repeatedFlag) String() string { return strings.Join(*r, ",") }
+func (r *repeatedFlag) Set(v string) error { *r = append(*r, v); return nil }
+
+// mergeArgs folds repeated --arg k=v entries into the positional map.
+// Repeated keys append to a []any (word-split), matching adapter args.
+func mergeArgs(pos map[string]any, rep repeatedFlag) map[string]any {
+	for _, kv := range rep {
+		if i := strings.Index(kv, "="); i > 0 {
+			key, val := kv[:i], kv[i+1:]
+			words := strings.Fields(val)
+			switch existing := pos[key].(type) {
+			case []any:
+				list := existing
+				for _, w := range words {
+					list = append(list, w)
+				}
+				pos[key] = list
+			case string:
+				list := []any{existing}
+				for _, w := range words {
+					list = append(list, w)
+				}
+				pos[key] = list
+			default:
+				if len(words) > 1 {
+					list := make([]any, 0, len(words))
+					for _, w := range words {
+						list = append(list, w)
+					}
+					pos[key] = list
+				} else {
+					pos[key] = val
+				}
+			}
+		}
+	}
+	return pos
+}
+
+// parseKV turns ["key=value with spaces", ...] into adapter args.
+// Values are split on spaces (the common case: a command line), producing
+// []any of words; quotes are honored via strings.Fields.
 func parseKV(args []string) map[string]any {
 	m := map[string]any{}
 	for _, a := range args {
 		if i := strings.Index(a, "="); i > 0 {
-			m[a[:i]] = a[i+1:]
+			key, val := a[:i], a[i+1:]
+			if fields := strings.Fields(val); len(fields) > 1 {
+				list := make([]any, len(fields))
+				for j, f := range fields {
+					list[j] = f
+				}
+				m[key] = list
+			} else {
+				m[key] = val
+			}
 		}
 	}
 	return m
@@ -700,6 +754,8 @@ func runExec(ctx context.Context, args []string) int {
 	session := fs.String("session", "", "session id")
 	wait := fs.Bool("wait", true, "wait for completion (default true; --wait=false fires and forgets)")
 	timeout := fs.Int("timeout-min", 0, "timeout minutes (policy default otherwise)")
+	flagArgs := repeatedFlag{}
+	fs.Var(&flagArgs, "arg", "adapter argument, e.g. --arg args=/c --arg args=echo hi (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -721,7 +777,7 @@ func runExec(ctx context.Context, args []string) int {
 		ToolID:         toolID,
 		Requirement:    requirement,
 		Command:        command,
-		Args:           parseKV(rest[1:]),
+		Args:           mergeArgs(parseKV(rest[1:]), flagArgs),
 		TimeoutMinutes: *timeout,
 		Wait:           *wait,
 	}, &run)

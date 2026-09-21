@@ -5,6 +5,7 @@ package proc
 import (
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"sync"
 	"syscall"
@@ -105,6 +106,15 @@ func ensureJob() (windows.Handle, error) {
 // Start launches cmd assigned to the global kill-on-close job object.
 // The caller has already wired Stdout/Stderr/Env/Dir on the cmd.
 func Start(cmd *exec.Cmd) error {
+	// Some Windows binaries (cmd.exe notoriously) mis-parse forward-slash
+	// exe paths, treating them as switches. Normalize BOTH Path and
+	// Args[0] (CreateProcess uses Args[0] as the command line head).
+	if cmd.Path != "" {
+		cmd.Path = filepath.FromSlash(cmd.Path)
+		if len(cmd.Args) > 0 {
+			cmd.Args[0] = cmd.Path
+		}
+	}
 	cmd.SysProcAttr = &syscall.SysProcAttr{CreationFlags: windows.CREATE_NEW_PROCESS_GROUP}
 	if err := cmd.Start(); err != nil {
 		return err

@@ -9,11 +9,14 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/xy00099/agent-runtime-harness/internal/config"
 	"github.com/xy00099/agent-runtime-harness/internal/daemon"
+	"github.com/xy00099/agent-runtime-harness/internal/model"
 	"github.com/xy00099/agent-runtime-harness/internal/rpc"
 )
 
@@ -39,6 +42,13 @@ func daemonDetach(cfg *config.Config) int {
 	exe, err := os.Executable()
 	if err != nil {
 		return fail(err)
+	}
+	// Windows requires the .exe suffix for a direct exec lookup; every other
+	// platform uses the path as-is.
+	if runtime.GOOS == "windows" && !strings.HasSuffix(exe, ".exe") {
+		if _, err := os.Stat(exe + ".exe"); err == nil {
+			exe += ".exe"
+		}
 	}
 	cmd := exec.Command(exe, "daemon", "start")
 	cmd.Env = append(os.Environ(),
@@ -115,6 +125,17 @@ func daemonForeground(ctx context.Context, cfg *config.Config) int {
 	}()
 	fmt.Printf("arh daemon %s listening on %s %s (state: %s)\n",
 		Version, ep.Network, ep.Address, cfg.Runtime.StateDir)
+	// Surface what recovery did: a restart ends interrupted sessions (their
+	// processes were reaped, their runs marked KILLED). Users must know.
+	interrupted := 0
+	for _, s := range svc.ListSessions() {
+		if s.State == model.SessionStopped && s.StoppedAt != nil && s.Failure != "done" {
+			interrupted++
+		}
+	}
+	if interrupted > 0 {
+		fmt.Printf("recovery: %d previous session(s) ended by the previous daemon exit (records kept for inspection)\n", interrupted)
+	}
 	err = rpc.Serve(ctx, ep, mux, nil)
 	// Shutdown every live session before exit (roadmap §9 acceptance).
 	fmt.Println("daemon: shutting down sessions...")

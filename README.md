@@ -59,16 +59,28 @@ It is the runtime that mediates access to the machine.
 ## Quickstart
 
 ```bash
-# build
-go build -o arh ./cmd/arh        # or: go install github.com/xy00099/agent-runtime-harness/cmd/arh@latest
+# 1. build (or: go install github.com/xy00099/agent-runtime-harness/cmd/arh@latest)
+go build -o arh ./cmd/arh
 
-# start the daemon (detached)
+# 2. start the daemon (detached)
 ./arh daemon start -d
 
-# register what a tool looks like (or put it in ~/.agent-runtime/config.yaml)
+# 3. register your first tool — edit ~/.agent-runtime/config.yaml:
+#
+#    tools:
+#      my-tool:                 # any id you like
+#        type: command          # run any executable
+#        executable: /usr/bin/make
+#
+#    On Windows name the binary arh.exe (go build -o arh.exe ./cmd/arh).
+#
+#    Unity needs no executable (auto-detects the Hub); Android needs only
+#    ANDROID_HOME/JAVA_HOME env — see the Configuration section below.
+
+# 4. verify the registry picked it up
 ./arh tool list
 
-# one session per agent task
+# 5. one session per task
 ./arh session create --name agent-a --dir ~/projects/game
 ./arh session create --name agent-b --dir ~/projects/game-2
 
@@ -77,8 +89,10 @@ go build -o arh ./cmd/arh        # or: go install github.com/xy00099/agent-runti
 # => port 42137
 #    export AGENT_RUNTIME_PORT_DEBUG=42137
 
-# run a host tool under supervision (blocking)
-./arh exec my-cmd-tool.run --session sess-000001 -- arg=hello
+# run a host tool under supervision (blocking). Pass tool arguments as
+# --arg key=value (repeatable; values are word-split):
+./arh exec my-tool.run --session sess-000001 --arg args=--version
+# e.g. Windows cmd:  --arg "args=/c echo hi"   -> runs: cmd /c "echo hi"
 
 # exclusive resource with a queue
 ./arh lease acquire --session sess-000001 --resource unity-license --wait
